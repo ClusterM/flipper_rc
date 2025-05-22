@@ -1,0 +1,14 @@
+{
+  "domain": "flipper_rc",
+  "name": "Flipper Zero Remote Control",
+  "codeowners": [
+    "@clusterm"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/ClusterM/flipper_rc/blob/master/README.md",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/ClusterM/flipper_rc/issues",
+  "requirements": ["pyserial-asyncio"],
+  "version": "1.0"
+}

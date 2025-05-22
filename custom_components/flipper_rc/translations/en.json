@@ -1,0 +1,49 @@
+{
+    "title": "Flipper Zero Remote Control",
+    "config": {
+        "abort": {
+            "already_configured": "Error: integration for this port is already configured.",
+            "unknown": "Unknown error, please check logs."
+        },
+        "error": {
+            "port_access_denied": "Access to the port is denied, please check the port permissions.",
+            "port_not_found": "Port not found, please check the port name.",
+            "port_io_error": "I/O error, please check the port name and that the device is connected correctly.",
+            "unknown": "Unknown error, please check logs."
+        },
+        "step": {
+            "port": {
+                "title": "Flipper Zero Serial Port",
+                "description": "Please enter the serial port name of your Flipper Zero device. In Linux, it is usually something like /dev/ttyACM0 or /dev/ttyACM1. In Windows, it is usually something like COM1 or COM2.",
+                "data": {
+                    "port": "Serial Port",
+                    "name": "Device name"
+                }
+            },
+            "port_linux": {
+                "title": "Flipper Zero Serial Port",
+                "description": "Please enter the serial port name of your Flipper Zero device. In Linux, it is usually something like /dev/ttyACM0 or /dev/ttyACM1.",
+                "data": {
+                    "port": "Serial Port",
+                    "name": "Device name"
+                }
+            },
+            "port_windows": {
+                "title": "Flipper Zero Serial Port",
+                "description": "Please enter the serial port name of your Flipper Zero device. In Windows, it is usually something like COM1 or COM2. You can find the port name in the Device Manager under Ports (COM & LPT).",
+                "data": {
+                    "port": "Serial Port",
+                    "name": "Device name"
+                }
+            },
+            "port_auto_detected": {
+                "title": "Flipper Zero Serial Port",
+                "description": "Please enter the serial port name of your Flipper Zero device. But seems like we have already detected it. If you want to change it, please enter the new port name.",
+                "data": {
+                    "port": "Serial Port",
+                    "name": "Device name"
+                }
+            }
+        }
+    }
+}
