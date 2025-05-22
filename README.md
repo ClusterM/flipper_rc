@@ -2,16 +2,17 @@
 
 Got a Flipper Zero collecting dust? Put it to work as an IR remote control emulator in Home Assistant!
 
-![image](https://github.com/user-attachments/assets/5b7e059a-d143-402c-aef5-a8d680658338)
+![image](https://github.com/user-attachments/assets/73bc20ef-4634-4cd2-ac58-73bc60041641)
 
 This integration allows you to use your Flipper Zero as a universal IR remote that can be controlled directly from Home Assistant. All you need to do is connect your Flipper Zero to the machine running Home Assistant via USB — no special setup required.
 
 Easily send IR commands to TVs, air conditioners, and other IR-controlled devices from your smart home dashboard. Perfect for automation lovers and Flipper enthusiasts alike!
 
-This integration:
+Features:
 * Fully local control – no cloud required, no internet dependency.
 * Fast and reliable – commands are sent instantly through USB.
 * Plug and play – just connect your Flipper Zero via USB and you're good to go.
+* Hot-plug support – you can safely disconnect and reconnect your Flipper Zero at any time. The integration will automatically re-establish the connection shortly after it's plugged back in.
 
 
 ## Integration setup
@@ -32,6 +33,70 @@ If you prefer manual installation or are not using HACS, follow these steps:
 * Make sure no applications are running and the desktop is visible.
 * Navigate to Settings → Devices & Services → Add Integration.
 * Search for "Flipper Zero Remote Control" and follow the setup wizard.
+
+### Troubleshooting Serial Port Access on Linux
+If your Flipper Zero is not detected or the integration fails to connect to the serial port, it's most likely due to permission issues or container isolation. Here’s how to fix it, depending on how Home Assistant is installed.
+
+#### Home Assistant OS / Supervisor
+*This is the official installation method, including Home Assistant OS and Supervised setups.*
+
+Good news: Serial ports are automatically forwarded to Home Assistant if the device is properly detected by the host.
+
+What to check:
+* Go to Settings → System → Hardware
+* Look for something like `/dev/ttyACM0`
+* If it's there, Home Assistant should have access to it
+
+If you don't see it:
+* Make sure the device is properly connected
+* Try reconnecting the device or restarting the host
+* Check on the host system (ssh or console):
+```
+dmesg | grep tty
+ls /dev/tty*
+```
+
+#### Home Assistant in Docker (manual)
+*If you installed Home Assistant Core manually inside a Docker container.*
+
+By default, Docker containers don’t have access to host devices. You must explicitly pass the serial port. How to fix:
+
+Run Docker with:
+```
+--device /dev/ttyACM0
+--group-add dialout
+```
+Full example:
+```
+docker run -d \
+  --name homeassistant \
+  --device /dev/ttyACM0 \
+  --group-add dialout \
+  -v /etc/localtime:/etc/localtime:ro \
+  -v /PATH_TO_CONFIG:/config \
+  --net=host \
+  ghcr.io/home-assistant/home-assistant:stable
+```
+Make sure the port path matches your actual device (e.g., /dev/ttyACM0, etc.)
+
+#### Home Assistant Core in virtualenv
+*Installed with `pip` inside a Python virtual environment.*
+
+This setup uses the current Linux user, so:
+* Make sure that your user is in the `dialout` group (or `tty`, depending on distro):
+```
+sudo usermod -aG dialout $USER
+```
+* Reboot or log out and back in
+* Check the port:
+```
+ls -l /dev/ttyACM0
+```
+You should see something like:
+```
+crw-rw---- 1 root dialout 166, 0 Apr 21 15:00 /dev/ttyACM0
+```
+The group (`dialout`) must match what your user has.
 
 
 ## How to use
