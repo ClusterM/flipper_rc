@@ -2,11 +2,11 @@
 
 Got a Flipper Zero collecting dust? Put it to work as an IR remote control emulator in Home Assistant!
 
+![image](https://github.com/user-attachments/assets/5b7e059a-d143-402c-aef5-a8d680658338)
+
 This integration allows you to use your Flipper Zero as a universal IR remote that can be controlled directly from Home Assistant. All you need to do is connect your Flipper Zero to the machine running Home Assistant via USB — no special setup required.
 
 Easily send IR commands to TVs, air conditioners, and other IR-controlled devices from your smart home dashboard. Perfect for automation lovers and Flipper enthusiasts alike!
-
-<image>
 
 This integration:
 * Fully local control – no cloud required, no internet dependency.
@@ -28,6 +28,8 @@ If you prefer manual installation or are not using HACS, follow these steps:
 * Locate the "flipper_rc" directory inside the extracted contents (in "custom_components" directory).
 * Move the "flipper_rc" folder to your Home Assistant's custom_components directory.
 * After copying the files, restart Home Assistant to recognize the new integration.
+* Connect your Flipper to the machine running Home Assistant via USB.
+* Make sure no applications are running and the desktop is visible.
 * Navigate to Settings → Devices & Services → Add Integration.
 * Search for "Flipper Zero Remote Control" and follow the setup wizard.
 
@@ -41,11 +43,11 @@ This integration creates a new "remote.*" entity for your IR remote controller. 
 To learn new commands, call the `remote.learn_command` service and pass the entity_id of your remote controller. You can do it from the Developer Tools. You must specify a `command` parameter with the name of the command you want to learn. 
 You can make integration to remember the button code by passing a `device` parameter. If you don't pass it, the button code will be shown in the notification only.
 
-![image](https://github.com/user-attachments/assets/1c08c1d4-67a4-4737-9b35-f0624d64aafe)
+![image](https://github.com/user-attachments/assets/a11610c4-5c8d-4ded-a52d-acaf77c79fb1)
 
 After calling the service, you will receive a notification which asks you to press the button on your real remote controller. Point your remote controller at the Flipper and press the button you want to learn. If the learning process is successful, you will receive a notification with the button code with some additional instructions.
 
-![image](https://github.com/user-attachments/assets/6fdd7928-86cb-4f3c-9c95-8bab40e708d9)
+![image](https://github.com/user-attachments/assets/3634347e-8f03-46eb-94cb-fabc5c1197a3)
 
 This integration tries to decode the button code using different IR protocols. If it fails, you will receive a notification with the raw button code. See below for more information on how to format IR codes.
 
@@ -56,7 +58,7 @@ To send commands, call the `remote.send_command` service and pass the entity_id 
 ```yaml
 service: remote.send_command
 data:
-  entity_id: remote.my_remote
+  entity_id: remote.flipper_zero_remote_control
   command: Power
   device: TV
 ```
@@ -66,7 +68,7 @@ To send a command by button code, just pass the `command` parameter with the but
 ```yaml
 service: remote.send_command
 data:
-  entity_id: remote.my_remote
+  entity_id: remote.flipper_zero_remote_control
   command: nec:addr=0xde,cmd=0xed
 ```
 
