@@ -78,7 +78,7 @@ class FlipperRCEntity(RemoteEntity):
         self._codes = codes
         self._available = False
         self._device = FlipperIR(self._port)
-        self._device.set_on_connection_lost(self._on_connection_lost)        
+        self._device.set_on_connection_lost(self._on_connection_lost)
 
     def _on_connection_lost(self):
         _LOGGER.warning("Connection lost to Flipper device %s", self._port)
@@ -125,6 +125,10 @@ class FlipperRCEntity(RemoteEntity):
     @property
     def supported_features(self):
         return RemoteEntityFeature.LEARN_COMMAND | RemoteEntityFeature.DELETE_COMMAND
+
+    async def async_added_to_hass(self):
+        await self.async_update()
+        self.schedule_update_ha_state()
 
     async def async_will_remove_from_hass(self):
         _LOGGER.debug("Removing device from Home Assistant...")

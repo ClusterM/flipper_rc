@@ -3,11 +3,14 @@
 import logging
 import voluptuous as vol
 import os
+import aiofiles.os
 import asyncio
 from homeassistant.helpers.storage import Store
 from .flipper_ir import FlipperIR
 
 from .const import *
+
+BY_ID_PATH = "/dev/serial/by-id"
 
 from homeassistant import config_entries
 import homeassistant.helpers.config_validation as cv
@@ -31,24 +34,27 @@ class FlipperZeroRCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_PORT: DEFAULT_PORT_LINUX if os.name != 'nt' else DEFAULT_PORT_WINDOWS
         }
         self.auto_detected = False
-        if os.path.exists("/dev/serial/by-id"):
-            # Check for the first serial device
-            for device in os.listdir("/dev/serial/by-id"):
-                if "_Flipper_" in device:
-                    self.config[CONF_PORT] = os.path.join("/dev/serial/by-id", device)
-                    self.auto_detected = True
-                    break
 
     async def async_step_user(self, user_input=None):
         """Handle a flow initialized by the user."""
+        if await aiofiles.os.path.exists(BY_ID_PATH):
+            # Check for the first serial device
+            devices = await aiofiles.os.listdir(BY_ID_PATH)
+            for device in devices:
+                if "_Flipper_" in device:
+                    self.config[CONF_PORT] = os.path.join(BY_ID_PATH, device)
+                    self.auto_detected = True
+                    break
         return await self.async_step_port()
-    
+
     async def async_step_port(self, user_input=None):
         """Handle the port step."""
         errors = {}
         if user_input is not None:
             self.config[CONF_PORT] = user_input[CONF_PORT]
+            device = None
             try:
+                unique_id = f"{DOMAIN}_{self.config[CONF_PORT]}"
                 if unique_id in self._async_current_ids():
                     return self.async_abort(reason="already_configured")
                 # Test the connection
@@ -56,7 +62,6 @@ class FlipperZeroRCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await device.open()
                 # read the device info
                 device_info = await device.get_device_info()
-                unique_id = f"{DOMAIN}_{self.config[CONF_PORT]}"
                 # Store the device info
                 store = Store(self.hass, DEVICE_INFO_STORAGE_VERSION, f"{DEVICE_INFO_STORAGE}_{self.config[CONF_PORT]}")
                 await store.async_save(device_info)
@@ -76,6 +81,9 @@ class FlipperZeroRCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except Exception as e:
                 errors["base"] = "unkown"
                 _LOGGER.error("Unknown error: %s", e, exc_info=True)
+            finally:
+                if device is not None:
+                    device.close()
             return await self.async_step_config()
         schema = vol.Schema(
             {
