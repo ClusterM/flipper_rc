@@ -84,7 +84,6 @@ class FlipperZeroRCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             finally:
                 if device is not None:
                     device.close()
-            return await self.async_step_port()
         schema = vol.Schema(
             {
                 vol.Required(CONF_PORT, default=self.config[CONF_PORT]): cv.string,
