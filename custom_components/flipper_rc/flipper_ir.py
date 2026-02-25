@@ -1,6 +1,6 @@
 import sys
 import asyncio
-import serial_asyncio
+import serial_asyncio_fast as serial_asyncio
 import logging
 import time
 
