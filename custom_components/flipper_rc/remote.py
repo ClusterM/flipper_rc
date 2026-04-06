@@ -31,6 +31,7 @@ from homeassistant.components.remote import (
 from homeassistant.helpers.storage import Store
 
 from .rc_encoder import rc_auto_encode, rc_auto_decode
+from .parsers import parse_subghz_command, parse_subghz_file_command
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -44,12 +45,12 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up the Flipper Zero Remote Control entry."""
-    await async_setup_platform(hass, entry.data, async_add_entities)
+    await async_setup_platform(hass, entry.data, async_add_entities, entry.entry_id)
 
 
-async def async_setup_platform(hass, config, async_add_entities):
+async def async_setup_platform(hass, config, async_add_entities, entry_id=None):
     """Set up platform."""
-    if config == None:
+    if config is None:
         _LOGGER.error("Configuration is empty")
         return
     
@@ -62,15 +63,19 @@ async def async_setup_platform(hass, config, async_add_entities):
 
     _LOGGER.debug("Setting up Flipper Zero Remote Control: name=%s, port=%s", name, port)
 
-    remote = FlipperRCEntity(name, port, device_info_storage, device_info, codes_storage, codes)
+    remote = FlipperRCEntity(name, port, device_info_storage, device_info, codes_storage, codes, entry_id)
+
+    if entry_id is not None:
+        hass.data.setdefault(DOMAIN, {}).setdefault("remote_entities", {})[entry_id] = remote
 
     async_add_entities([remote])
 
 
 class FlipperRCEntity(RemoteEntity):
-    def __init__(self, name, port, device_info_storage, device_info, codes_storage, codes):
+    def __init__(self, name, port, device_info_storage, device_info, codes_storage, codes, entry_id=None):
         self._name = name
         self._port = port
+        self._entry_id = entry_id
         self._device_info_storage = device_info_storage
         self._device_info = device_info
         self._last_device_info_update = 0
@@ -100,6 +105,10 @@ class FlipperRCEntity(RemoteEntity):
     @property
     def unique_id(self):
         return f"{DOMAIN}_{self._port}"
+
+    @property
+    def port(self):
+        return self._port
 
     @property
     def should_poll(self):
@@ -132,6 +141,10 @@ class FlipperRCEntity(RemoteEntity):
 
     async def async_will_remove_from_hass(self):
         _LOGGER.debug("Removing device from Home Assistant...")
+        if self._entry_id is not None and self.hass is not None:
+            remote_entities = self.hass.data.get(DOMAIN, {}).get("remote_entities", {})
+            if remote_entities.get(self._entry_id) is self:
+                del remote_entities[self._entry_id]
         if self._device:
             self._device.close()
             _LOGGER.debug("Device deinitialized.")
@@ -162,6 +175,14 @@ class FlipperRCEntity(RemoteEntity):
         """Turn the device off."""
         raise HomeAssistantError("Turning off is not supported for this device.")
 
+    async def async_list_subghz_files(self, root):
+        """Public API for listing Sub-GHz files on Flipper storage."""
+        return await self._device.list_subghz_files(root)
+
+    async def async_send_subghz_from_file(self, path, repeat=1, antenna=0):
+        """Public API for replaying Sub-GHz capture files from storage."""
+        await self._device.send_subghz_from_file(path, repeat=repeat, antenna=antenna)
+
     async def async_send_command(self, command, **kwargs):
         """Send a list of commands to a device."""
         device = kwargs.get(ATTR_DEVICE, None)
@@ -185,9 +206,29 @@ class FlipperRCEntity(RemoteEntity):
                     else:
                         code = cmd
                         _LOGGER.debug("Sending command, code: '%s'", code)
-                    pulses = rc_auto_encode(code)
-                    _LOGGER.debug("Command pulses: %s", pulses)
-                    await self._device.send_ir(pulses)
+
+                    if isinstance(code, str) and code.startswith("subghz-file:"):
+                        tx = parse_subghz_file_command(code)
+                        _LOGGER.debug("Sub-GHz file command parsed: %s", tx)
+                        await self._device.send_subghz_from_file(
+                            path=tx["path"],
+                            repeat=tx["repeat"],
+                            antenna=tx["antenna"],
+                        )
+                    elif isinstance(code, str) and code.startswith("subghz:"):
+                        tx = parse_subghz_command(code)
+                        _LOGGER.debug("Sub-GHz command parsed: %s", tx)
+                        await self._device.send_subghz(
+                            key=tx["key"],
+                            frequency=tx["frequency"],
+                            te=tx["te"],
+                            repeat=tx["repeat"],
+                            antenna=tx["antenna"],
+                        )
+                    else:
+                        pulses = rc_auto_encode(code)
+                        _LOGGER.debug("Command pulses: %s", pulses)
+                        await self._device.send_ir(pulses)
                     if n < repeat - 1 and repeat_delay > 0:
                         await asyncio.sleep(repeat_delay)
             if not self._available:
@@ -213,7 +254,13 @@ class FlipperRCEntity(RemoteEntity):
         
         try:
             if not command: raise ValueError("You need to specify a command name to learn.")
-            if command_type != "ir": raise NotImplementedError(f'Unknown command type "{command_type}", only "ir" is supported.')
+            if command_type != "ir":
+                if command_type == "subghz":
+                    raise NotImplementedError(
+                        "Sub-GHz learning is not supported yet. "
+                        "Use remote.send_command with a subghz:... code string."
+                    )
+                raise NotImplementedError(f'Unknown command type "{command_type}", only "ir" is supported.')
             if alternative != None: raise ValueError('"Alternative" option is not supported.')
             if self._device.busy:
                 raise HomeAssistantError("Device is busy, please wait and try again.")

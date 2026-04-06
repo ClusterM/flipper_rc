@@ -1,18 +1,19 @@
 # Flipper Zero Remote Control integration for Home Assistant
 
-Got a Flipper Zero collecting dust? Put it to work as an IR remote control emulator in Home Assistant!
+Got a Flipper Zero collecting dust? Put it to work as an IR and Sub-GHz remote control emulator in Home Assistant!
 
 ![image](https://github.com/user-attachments/assets/73bc20ef-4634-4cd2-ac58-73bc60041641)
 
-This integration allows you to use your Flipper Zero as a universal IR remote that can be controlled directly from Home Assistant. All you need to do is connect your Flipper Zero to the machine running Home Assistant via USB — no special setup required.
+This integration allows you to use your Flipper Zero as a universal IR and Sub-GHz remote that can be controlled directly from Home Assistant. All you need to do is connect your Flipper Zero to the machine running Home Assistant via USB — no special setup required.
 
-Easily send IR commands to TVs, air conditioners, and other IR-controlled devices from your smart home dashboard. Perfect for automation lovers and Flipper enthusiasts alike!
+Easily send IR commands to TVs, air conditioners, and other IR-controlled devices from your smart home dashboard. You can also send Sub-GHz fixed-code transmissions. Perfect for automation lovers and Flipper enthusiasts alike!
 
 Features:
 * Fully local control – no cloud required, no internet dependency.
 * Fast and reliable – commands are sent instantly through USB.
 * Plug and play – just connect your Flipper Zero via USB and you're good to go.
 * Hot-plug support – you can safely disconnect and reconnect your Flipper Zero at any time. The integration will automatically re-establish the connection shortly after it's plugged back in.
+* Supports both IR and Sub-GHz send commands from `remote.send_command`.
 
 
 ## Integration setup
@@ -116,6 +117,8 @@ The group (`dialout`) must match what your user has.
 
 This integration creates a new "remote.*" entity for your IR remote controller. But "Remote" entities are not directly controllable. You must use the `remote.send_command` service to send IR commands to your device and `remote.learn_command` service to learn new commands (read button codes from your remote). So, you can create scripts, automations, or even use the `remote.send_command` service directly from the Developer Tools to control your IR devices.
 
+For Sub-GHz saved files, this integration also creates `button.*` entities automatically (one button per `.sub` file found under common Sub-GHz roots like `/subghz` and `/ext/subghz` on your Flipper). Pressing such a button replays that file using `subghz tx_from_file`.
+
 ### Learn new commands (how to get button codes)
 
 To learn new commands, call the `remote.learn_command` service and pass the entity_id of your remote controller. You can do it from the Developer Tools. You must specify a `command` parameter with the name of the command you want to learn. 
@@ -141,13 +144,45 @@ data:
   device: TV
 ```
 
-To send a command by button code, just pass the `command` parameter with the button code:
+To send an IR command by button code, just pass the `command` parameter with the button code:
 
 ```yaml
 service: remote.send_command
 data:
   entity_id: remote.flipper_zero_remote_control
   command: nec:addr=0xde,cmd=0xed
+```
+
+To send a Sub-GHz fixed-code command, pass a `subghz:` command string:
+
+```yaml
+service: remote.send_command
+data:
+  entity_id: remote.flipper_zero_remote_control
+  command: subghz:key=0x123456,freq=433920000,te=350,repeat=1,antenna=0
+```
+
+Notes:
+- `antenna=0` means internal antenna, `antenna=1` means external antenna.
+- You can also use positional format: `subghz:0x123456,433920000,350,1,0`
+- `remote.learn_command` currently supports IR learning only.
+
+To replay a captured Sub-GHz file that is already saved on Flipper Zero SD card, use `subghz-file:`:
+
+```yaml
+service: remote.send_command
+data:
+  entity_id: remote.flipper_zero_remote_control
+  command: subghz-file:path=/ext/subghz/MyRemote/test.sub,repeat=1,antenna=0
+```
+
+You can also use positional format:
+
+```yaml
+service: remote.send_command
+data:
+  entity_id: remote.flipper_zero_remote_control
+  command: subghz-file:/ext/subghz/MyRemote/test.sub,1,0
 ```
 
 
@@ -222,6 +257,74 @@ The `toggle` parameter can be 0 or 1 and is optional. It helps to distinguish be
 - **pioneer**: Used in Pioneer devices, this protocol requires `addr` and `cmd`.
 
 - **ac**: Some air conditioners use this protocol (at least Gorenie and MDV). Usually 16-bit command contains 4-bit mode, 4-bit fan speed, 4-bit temperature and some other bits. Requires `addr` and `cmd`.
+
+
+## Sub-GHz Code Formatting
+
+Sub-GHz commands use the Flipper CLI `subghz tx` format under the hood.
+
+Supported command string formats:
+
+1. Key-value format:
+
+```
+subghz:key=0x123456,freq=433920000,te=350,repeat=1,antenna=0
+```
+
+2. Positional format:
+
+```
+subghz:0x123456,433920000,350,1,0
+```
+
+Parameters:
+
+- `key`: 3-byte key (`0x000000` to `0xFFFFFF`)
+- `freq`: frequency in Hz (`frequency` is also accepted)
+- `te`: quantization interval in microseconds
+- `repeat`: repeat count
+- `antenna`: `0` internal CC1101, `1` external CC1101
+
+### Replay Saved Sub-GHz Files
+
+This integration can replay existing Sub-GHz capture files (`.sub`) directly from Flipper storage.
+
+Supported command string formats:
+
+1. Key-value format:
+
+```
+subghz-file:path=/ext/subghz/MyRemote/test.sub,repeat=1,antenna=0
+```
+
+2. Positional format:
+
+```
+subghz-file:/ext/subghz/MyRemote/test.sub,1,0
+```
+
+Parameters:
+
+- `path`: full path on Flipper storage, must start with `/ext/` or `/subghz/`
+- `repeat`: repeat count
+- `antenna`: `0` internal CC1101, `1` external CC1101
+
+### Automatic Trigger Buttons For Saved Sub-GHz Files
+
+At startup, the integration scans common Sub-GHz roots on the Flipper SD card and creates Home Assistant button entities for discovered `.sub` files.
+
+By default it tries:
+
+- `/subghz`
+- `/ext/subghz`
+- `/ext/subghz/Saved`
+- `/ext/subghz_playlist`
+- `/ext/apps_data/subghz`
+- `/ext` (fallback recursive scan)
+
+- Entity name format: `Sub-GHz <filename>`
+- Press action: replay file with `repeat=1` and `antenna=0`
+- If you add/remove files later, reload the integration (or restart Home Assistant) to refresh the button list.
 
 
 ## Donate
