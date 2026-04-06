@@ -10,7 +10,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _is_supported_subghz_path(path):
-    return isinstance(path, str) and (path.startswith("/ext/") or path.startswith("/subghz/"))
+    return isinstance(path, str) and path.startswith("/ext/")
 
 class FlipperIR:
     def __init__(self, port, default_timeout=10):
@@ -245,7 +245,7 @@ class FlipperIR:
     async def send_subghz_from_file(self, path, repeat=1, antenna=0):
         """Send Sub-GHz transmission from saved Flipper SD card file."""
         if not _is_supported_subghz_path(path):
-            raise ValueError('Sub-GHz file path must start with "/ext/" or "/subghz/"')
+            raise ValueError('Sub-GHz file path must start with "/ext/"')
         if "\n" in path or "\r" in path or "\x00" in path:
             raise ValueError("Sub-GHz file path contains forbidden control characters")
         if int(repeat) <= 0:
@@ -302,14 +302,14 @@ class FlipperIR:
             lower_line = line.lower()
 
             # Absolute path in output.
-            for root_token in ("/ext/", "/subghz/"):
+            for root_token in ("/ext/",):
                 if root_token in line and ".sub" in lower_line:
                     start = line.find(root_token)
                     end = lower_line.find(".sub", start)
                     if start >= 0 and end > start:
                         found.add(normpath(line[start:end + 4].strip()))
 
-            for match in re.findall(r"/(?:ext|subghz)/[^\s]*\.sub", line, flags=re.IGNORECASE):
+            for match in re.findall(r"/ext/[^\s]*\.sub", line, flags=re.IGNORECASE):
                 found.add(normpath(match.strip()))
 
             # Relative filename fallback in output tree line.

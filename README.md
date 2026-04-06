@@ -117,7 +117,7 @@ The group (`dialout`) must match what your user has.
 
 This integration creates a new "remote.*" entity for your IR remote controller. But "Remote" entities are not directly controllable. You must use the `remote.send_command` service to send IR commands to your device and `remote.learn_command` service to learn new commands (read button codes from your remote). So, you can create scripts, automations, or even use the `remote.send_command` service directly from the Developer Tools to control your IR devices.
 
-For Sub-GHz saved files, this integration also creates `button.*` entities automatically (one button per `.sub` file found under common Sub-GHz roots like `/subghz` and `/ext/subghz` on your Flipper). Pressing such a button replays that file using `subghz tx_from_file`.
+For Sub-GHz saved files, this integration also creates `button.*` entities automatically (one button per `.sub` file found under common Sub-GHz roots like `/ext/subghz` on your Flipper). Pressing such a button replays that file using `subghz tx_from_file`.
 
 ### Learn new commands (how to get button codes)
 
@@ -305,7 +305,7 @@ subghz-file:/ext/subghz/MyRemote/test.sub,1,0
 
 Parameters:
 
-- `path`: full path on Flipper storage, must start with `/ext/` or `/subghz/`
+- `path`: full path on Flipper storage, must start with `/ext/`
 - `repeat`: repeat count
 - `antenna`: `0` internal CC1101, `1` external CC1101
 
@@ -315,7 +315,6 @@ At startup, the integration scans common Sub-GHz roots on the Flipper SD card an
 
 By default it tries:
 
-- `/subghz`
 - `/ext/subghz`
 - `/ext/subghz/Saved`
 - `/ext/subghz_playlist`

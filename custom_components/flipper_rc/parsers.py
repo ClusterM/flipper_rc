@@ -3,7 +3,7 @@
 
 def is_subghz_storage_path(path):
     """Return True for supported absolute Sub-GHz storage roots."""
-    return isinstance(path, str) and (path.startswith("/ext/") or path.startswith("/subghz/"))
+    return isinstance(path, str) and path.startswith("/ext/")
 
 
 def parse_key_value_payload(payload, error_prefix):
@@ -105,7 +105,7 @@ def parse_subghz_file_command(code):
         antenna = int(parts[2], 0) if len(parts) > 2 else 0
 
     if not is_subghz_storage_path(path):
-        raise ValueError('Sub-GHz file path must start with "/ext/" or "/subghz/"')
+        raise ValueError('Sub-GHz file path must start with "/ext/"')
     if repeat <= 0:
         raise ValueError("Sub-GHz repeat must be positive")
     if antenna not in (0, 1):

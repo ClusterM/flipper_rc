@@ -19,17 +19,6 @@ REMOTE_ENTITY_READY_MAX_RETRIES = 25
 REMOTE_ENTITY_READY_RETRY_DELAY_SECONDS = 0.2
 
 
-def _mirror_dedupe_key(path):
-    """Return a stable dedupe key for mirrored Sub-GHz roots.
-
-    Some firmwares expose the same files through both `/subghz/...` and
-    `/ext/subghz/...`. Use one logical key to avoid creating duplicate buttons.
-    """
-    if path.startswith("/ext/subghz/"):
-        return "/subghz/" + path[len("/ext/subghz/"):]
-    return path
-
-
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Sub-GHz file trigger buttons for a config entry."""
     _LOGGER.info("Setting up Sub-GHz buttons for entry %s", entry.entry_id)
@@ -58,7 +47,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     files = []
     search_roots = [
-        "/subghz",
         "/ext/subghz",
         "/ext/subghz/Saved",
         "/ext/subghz_playlist",
@@ -76,13 +64,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             _LOGGER.info("Discovered %d Sub-GHz files in %s for %s", len(discovered), root, remote_entity.port)
             files.extend(discovered)
 
-    deduped = {}
-    for file_path in files:
-        key = _mirror_dedupe_key(file_path)
-        # Prefer /subghz path when both mirrors are present.
-        if key not in deduped or file_path.startswith("/subghz/"):
-            deduped[key] = file_path
-    files = sorted(deduped.values())
+    files = sorted(set(files))
 
     if not files:
         _LOGGER.warning("No Sub-GHz .sub files found in known roots on %s", remote_entity.port)
@@ -124,4 +106,9 @@ class FlipperSubGhzFileButton(ButtonEntity):
 
     async def async_press(self):
         """Replay file when button is pressed."""
-        await self._remote_entity.async_send_subghz_from_file(self._file_path, repeat=1, antenna=0)
+        _LOGGER.info("Sending Sub-GHz saved file: %s", self._file_path)
+        try:
+            await self._remote_entity.async_send_subghz_from_file(self._file_path, repeat=1, antenna=0)
+        except Exception as e:
+            _LOGGER.error("Failed to send Sub-GHz saved file %s: %s", self._file_path, e, exc_info=True)
+            raise

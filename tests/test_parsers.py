@@ -69,12 +69,3 @@ def test_parse_subghz_file_command_positional_success():
 def test_parse_subghz_file_command_rejects_non_ext_path():
     with pytest.raises(ValueError, match="must start with"):
         parse_subghz_file_command("subghz-file:path=/int/subghz/test.sub,repeat=1")
-
-
-def test_parse_subghz_file_command_accepts_subghz_root():
-    parsed = parse_subghz_file_command("subghz-file:path=/subghz/test.sub,repeat=1,antenna=0")
-    assert parsed == {
-        "path": "/subghz/test.sub",
-        "repeat": 1,
-        "antenna": 0,
-    }
