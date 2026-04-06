@@ -43,10 +43,10 @@ def parse_subghz_command(code):
         if key_raw is None:
             raise ValueError('Sub-GHz command requires "key" parameter')
 
-        frequency = int(data.get("frequency", data.get("freq", 433920000)), 0)
-        te = int(data.get("te", 350), 0)
-        repeat = int(data.get("repeat", 1), 0)
-        antenna = int(data.get("antenna", data.get("device", 0)), 0)
+        frequency = int(data.get("frequency", data.get("freq", "433920000")), 0)
+        te = int(data.get("te", "350"), 0)
+        repeat = int(data.get("repeat", "1"), 0)
+        antenna = int(data.get("antenna", data.get("device", "0")), 0)
         key = int(key_raw, 0)
     else:
         parts = [p.strip() for p in payload.split(",") if p.strip()]
@@ -94,8 +94,8 @@ def parse_subghz_file_command(code):
         path = data.get("path")
         if not path:
             raise ValueError('Sub-GHz file command requires "path" parameter')
-        repeat = int(data.get("repeat", 1), 0)
-        antenna = int(data.get("antenna", data.get("device", 0)), 0)
+        repeat = int(data.get("repeat", "1"), 0)
+        antenna = int(data.get("antenna", data.get("device", "0")), 0)
     else:
         parts = [p.strip() for p in payload.split(",") if p.strip()]
         if len(parts) < 1:
