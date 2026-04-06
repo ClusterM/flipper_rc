@@ -1,10 +1,17 @@
 import pytest
+import importlib.util
+from pathlib import Path
 
-from custom_components.flipper_rc.parsers import (
-    parse_key_value_payload,
-    parse_subghz_command,
-    parse_subghz_file_command,
-)
+
+_PARSERS_PATH = Path(__file__).resolve().parents[1] / "custom_components" / "flipper_rc" / "parsers.py"
+_SPEC = importlib.util.spec_from_file_location("flipper_rc_parsers", _PARSERS_PATH)
+_MODULE = importlib.util.module_from_spec(_SPEC)
+assert _SPEC is not None and _SPEC.loader is not None
+_SPEC.loader.exec_module(_MODULE)
+
+parse_key_value_payload = _MODULE.parse_key_value_payload
+parse_subghz_command = _MODULE.parse_subghz_command
+parse_subghz_file_command = _MODULE.parse_subghz_file_command
 
 
 def test_parse_key_value_payload_splits_once():
