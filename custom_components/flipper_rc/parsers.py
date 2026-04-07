@@ -36,8 +36,8 @@ def parse_subghz_command(code):
     if "=" in payload:
         try:
             data = parse_key_value_payload(payload, "Invalid Sub-GHz key-value format")
-        except Exception as e:
-            raise ValueError(f"Invalid Sub-GHz key-value format: {payload}") from e
+        except ValueError as e:
+            raise ValueError(f"Invalid Sub-GHz key-value format: {payload}. {e}") from e
 
         key_raw = data.get("key")
         if key_raw is None:
@@ -60,6 +60,8 @@ def parse_subghz_command(code):
 
     if not (0 <= key <= 0xFFFFFF):
         raise ValueError("Sub-GHz key must be in range 0x000000-0xFFFFFF")
+    if frequency <= 0:
+        raise ValueError("Sub-GHz frequency must be positive")
     if te <= 0:
         raise ValueError("Sub-GHz te must be positive")
     if repeat <= 0:
@@ -88,8 +90,8 @@ def parse_subghz_file_command(code):
     if "=" in payload:
         try:
             data = parse_key_value_payload(payload, "Invalid Sub-GHz file key-value format")
-        except Exception as e:
-            raise ValueError(f"Invalid Sub-GHz file key-value format: {payload}") from e
+        except ValueError as e:
+            raise ValueError(f"Invalid Sub-GHz file key-value format: {payload}. {e}") from e
 
         path = data.get("path")
         if not path:
@@ -106,6 +108,8 @@ def parse_subghz_file_command(code):
 
     if not is_subghz_storage_path(path):
         raise ValueError('Sub-GHz file path must start with "/ext/"')
+    if any(ch.isspace() for ch in path) or "\x00" in path:
+        raise ValueError("Sub-GHz file path must not contain whitespace or control characters")
     if repeat <= 0:
         raise ValueError("Sub-GHz repeat must be positive")
     if antenna not in (0, 1):

@@ -48,6 +48,16 @@ def test_parse_subghz_command_rejects_bad_antenna():
         parse_subghz_command("subghz:key=0x123456,freq=433920000,antenna=2")
 
 
+def test_parse_subghz_command_rejects_non_positive_frequency():
+    with pytest.raises(ValueError, match="frequency"):
+        parse_subghz_command("subghz:key=0x123456,freq=0")
+
+
+def test_parse_subghz_command_key_value_includes_original_reason():
+    with pytest.raises(ValueError, match="missing '='"):
+        parse_subghz_command("subghz:key=0x123456,freq")
+
+
 def test_parse_subghz_file_command_key_value_success():
     parsed = parse_subghz_file_command("subghz-file:path=/ext/subghz/test.sub,repeat=2,antenna=1")
     assert parsed == {
@@ -69,3 +79,13 @@ def test_parse_subghz_file_command_positional_success():
 def test_parse_subghz_file_command_rejects_non_ext_path():
     with pytest.raises(ValueError, match="must start with"):
         parse_subghz_file_command("subghz-file:path=/int/subghz/test.sub,repeat=1")
+
+
+def test_parse_subghz_file_command_rejects_whitespace_path():
+    with pytest.raises(ValueError, match="must not contain whitespace"):
+        parse_subghz_file_command("subghz-file:path=/ext/subghz/test file.sub,repeat=1")
+
+
+def test_parse_subghz_file_command_key_value_includes_original_reason():
+    with pytest.raises(ValueError, match="missing '='"):
+        parse_subghz_file_command("subghz-file:path=/ext/subghz/test.sub,repeat")

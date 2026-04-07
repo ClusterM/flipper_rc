@@ -51,8 +51,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
         "/ext/subghz/Saved",
         "/ext/subghz_playlist",
         "/ext/apps_data/subghz",
-        "/ext",
     ]
+    fallback_root = "/ext"
 
     for root in search_roots:
         try:
@@ -63,6 +63,16 @@ async def async_setup_entry(hass, entry, async_add_entities):
         if discovered:
             _LOGGER.info("Discovered %d Sub-GHz files in %s for %s", len(discovered), root, remote_entity.port)
             files.extend(discovered)
+
+    if not files:
+        try:
+            discovered = await remote_entity.async_list_subghz_files(fallback_root)
+        except Exception as e:
+            _LOGGER.debug("Cannot discover Sub-GHz files in %s on %s: %s", fallback_root, remote_entity.port, e)
+        else:
+            if discovered:
+                _LOGGER.info("Discovered %d Sub-GHz files in %s for %s", len(discovered), fallback_root, remote_entity.port)
+                files.extend(discovered)
 
     files = sorted(set(files))
 

@@ -3,6 +3,7 @@ import asyncio
 import serial_asyncio_fast as serial_asyncio
 import logging
 import time
+from collections import deque
 from posixpath import normpath
 import re
 
@@ -11,6 +12,14 @@ _LOGGER = logging.getLogger(__name__)
 
 def _is_supported_subghz_path(path):
     return isinstance(path, str) and path.startswith("/ext/")
+
+
+def _has_forbidden_subghz_path_chars(path):
+    return any(ch.isspace() for ch in path) or "\x00" in path
+
+
+def _is_sendable_subghz_path(path):
+    return _is_supported_subghz_path(path) and not _has_forbidden_subghz_path_chars(path)
 
 class FlipperIR:
     def __init__(self, port, default_timeout=10):
@@ -231,6 +240,8 @@ class FlipperIR:
         """Send Sub-GHz key with Flipper CLI subghz tx command."""
         if not (0 <= int(key) <= 0xFFFFFF):
             raise ValueError("Sub-GHz key must be in range 0x000000-0xFFFFFF")
+        if int(frequency) <= 0:
+            raise ValueError("Sub-GHz frequency must be positive")
         if int(antenna) not in (0, 1):
             raise ValueError("Sub-GHz antenna must be 0 or 1")
         if int(te) <= 0:
@@ -246,8 +257,8 @@ class FlipperIR:
         """Send Sub-GHz transmission from saved Flipper SD card file."""
         if not _is_supported_subghz_path(path):
             raise ValueError('Sub-GHz file path must start with "/ext/"')
-        if "\n" in path or "\r" in path or "\x00" in path:
-            raise ValueError("Sub-GHz file path contains forbidden control characters")
+        if _has_forbidden_subghz_path_chars(path):
+            raise ValueError("Sub-GHz file path must not contain whitespace or control characters")
         if int(repeat) <= 0:
             raise ValueError("Sub-GHz repeat must be positive")
         if int(antenna) not in (0, 1):
@@ -325,18 +336,18 @@ class FlipperIR:
         """Recursively list Sub-GHz .sub files on Flipper storage."""
         try:
             tree_files = await self._storage_tree_sub_files(root)
-            tree_files = [p for p in tree_files if _is_supported_subghz_path(p) and p.lower().endswith(".sub")]
+            tree_files = [p for p in tree_files if _is_sendable_subghz_path(p) and p.lower().endswith(".sub")]
             if tree_files:
                 return sorted(set(tree_files))
         except Exception as e:
             _LOGGER.debug("Cannot read storage tree for %s: %s", root, e)
 
         discovered = []
-        queue = [root.rstrip("/")]
+        queue = deque([root.rstrip("/")])
         visited = set()
 
         while queue:
-            current = queue.pop(0)
+            current = queue.popleft()
             if current in visited:
                 continue
             visited.add(current)
@@ -348,7 +359,7 @@ class FlipperIR:
                 continue
 
             for file_path in files:
-                if _is_supported_subghz_path(file_path) and file_path.lower().endswith(".sub"):
+                if _is_sendable_subghz_path(file_path) and file_path.lower().endswith(".sub"):
                     discovered.append(file_path)
             for dir_path in dirs:
                 if _is_supported_subghz_path(dir_path) and dir_path not in visited:
