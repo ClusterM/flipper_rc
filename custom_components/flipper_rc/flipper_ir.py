@@ -3,8 +3,23 @@ import asyncio
 import serial_asyncio_fast as serial_asyncio
 import logging
 import time
+from collections import deque
+from posixpath import normpath
+import re
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _is_supported_subghz_path(path):
+    return isinstance(path, str) and path.startswith("/ext/")
+
+
+def _has_forbidden_subghz_path_chars(path):
+    return any(ch.isspace() for ch in path) or "\x00" in path
+
+
+def _is_sendable_subghz_path(path):
+    return _is_supported_subghz_path(path) and not _has_forbidden_subghz_path_chars(path)
 
 class FlipperIR:
     def __init__(self, port, default_timeout=10):
@@ -102,6 +117,28 @@ class FlipperIR:
         if not self.connected:
             await self.open()
 
+    def _validate_cli_response(self, lines, expected_prefixes, command_name):
+        """Validate command response while tolerating blank/noisy lines."""
+        non_empty = [line.strip() for line in lines if isinstance(line, str) and line.strip()]
+
+        for line in non_empty:
+            for prefix in expected_prefixes:
+                if line.startswith(prefix):
+                    return
+
+        # Some firmware builds may not echo command line consistently.
+        # Only fail when there is an explicit error in response.
+        for line in non_empty:
+            low = line.lower()
+            if "error" in low or "failed" in low or "invalid" in low or "unknown" in low:
+                raise ValueError(f"{command_name} failed: {line!r}")
+
+        _LOGGER.debug(
+            "No expected echo found for %s; accepting response. Lines: %s",
+            command_name,
+            lines,
+        )
+
     def _send_ctrl_c(self):
         if self._transport:
             self._transport.write(b'\x03')
@@ -118,6 +155,11 @@ class FlipperIR:
         Returns:
             list: List of lines received from Flipper Zero.            
         """
+        if not isinstance(cmd, str):
+            raise ValueError("CLI command must be a string")
+        if "\n" in cmd or "\r" in cmd or "\x00" in cmd:
+            raise ValueError("CLI command contains forbidden control characters")
+
         _LOGGER.debug(f"Sending command: {cmd.strip()}")
         await self.ensure_open()
 
@@ -192,8 +234,138 @@ class FlipperIR:
         samples_str = ' '.join(str(x) for x in samples)
         cmd = f"ir tx RAW F:{frequency} DC:{duty_cycle} {samples_str}"        
         lines = await self.command(cmd)
-        if len(lines) >= 2 and not lines[-2].startswith(">: ir tx RAW"):
-            raise ValueError(f"Unexpected response: {lines[-2]!r}")
+        self._validate_cli_response(lines, [">: ir tx RAW", ">: ir tx raw"], "ir tx")
+
+    async def send_subghz(self, key, frequency, te=350, repeat=1, antenna=0):
+        """Send Sub-GHz key with Flipper CLI subghz tx command."""
+        if not (0 <= int(key) <= 0xFFFFFF):
+            raise ValueError("Sub-GHz key must be in range 0x000000-0xFFFFFF")
+        if int(frequency) <= 0:
+            raise ValueError("Sub-GHz frequency must be positive")
+        if int(antenna) not in (0, 1):
+            raise ValueError("Sub-GHz antenna must be 0 or 1")
+        if int(te) <= 0:
+            raise ValueError("Sub-GHz te must be positive")
+        if int(repeat) <= 0:
+            raise ValueError("Sub-GHz repeat must be positive")
+
+        cmd = f"subghz tx {int(key):06X} {int(frequency)} {int(te)} {int(repeat)} {int(antenna)}"
+        lines = await self.command(cmd)
+        self._validate_cli_response(lines, [">: subghz tx"], "subghz tx")
+
+    async def send_subghz_from_file(self, path, repeat=1, antenna=0):
+        """Send Sub-GHz transmission from saved Flipper SD card file."""
+        if not _is_supported_subghz_path(path):
+            raise ValueError('Sub-GHz file path must start with "/ext/"')
+        if _has_forbidden_subghz_path_chars(path):
+            raise ValueError("Sub-GHz file path must not contain whitespace or control characters")
+        if int(repeat) <= 0:
+            raise ValueError("Sub-GHz repeat must be positive")
+        if int(antenna) not in (0, 1):
+            raise ValueError("Sub-GHz antenna must be 0 or 1")
+
+        cmd = f"subghz tx_from_file {path} {int(repeat)} {int(antenna)}"
+        lines = await self.command(cmd)
+        self._validate_cli_response(lines, [">: subghz tx_from_file"], "subghz tx_from_file")
+
+    async def _storage_list(self, path):
+        """List one storage directory and return absolute dir/file paths."""
+        lines = await self.command(f"storage list {path}")
+        dirs = []
+        files = []
+        for line in lines:
+            if not line or line.startswith(">: "):
+                continue
+            item = line.strip()
+            if not item or item in (".", ".."):
+                continue
+
+            entry_type = None
+            name = item
+            if item.startswith("[D] "):
+                entry_type = "dir"
+                name = item[4:].strip()
+            elif item.startswith("[F] "):
+                entry_type = "file"
+                name = item[4:].strip()
+
+            if not name:
+                continue
+
+            full_path = normpath(name if name.startswith("/") else f"{path.rstrip('/')}/{name}")
+
+            # Tolerant fallback when type prefix is missing in output.
+            if entry_type == "dir" or (entry_type is None and item.endswith("/")):
+                dirs.append(full_path.rstrip("/"))
+            elif entry_type == "file" or (entry_type is None and full_path.endswith(".sub")):
+                files.append(full_path)
+
+        return dirs, files
+
+    async def _storage_tree_sub_files(self, root):
+        """Extract .sub file paths from `storage tree` output."""
+        lines = await self.command(f"storage tree {root}")
+        found = set()
+        for line in lines:
+            if not line or line.startswith(">: "):
+                continue
+
+            lower_line = line.lower()
+
+            # Absolute path in output.
+            for root_token in ("/ext/",):
+                if root_token in line and ".sub" in lower_line:
+                    start = line.find(root_token)
+                    end = lower_line.find(".sub", start)
+                    if start >= 0 and end > start:
+                        found.add(normpath(line[start:end + 4].strip()))
+
+            for match in re.findall(r"/ext/[^\s]*\.sub", line, flags=re.IGNORECASE):
+                found.add(normpath(match.strip()))
+
+            # Relative filename fallback in output tree line.
+            if ".sub" in lower_line and "/ext/" not in line:
+                # Strip tree drawing characters and keep a best-effort filename.
+                stripped = line.strip().lstrip("|`-+> ")
+                if stripped.lower().endswith(".sub"):
+                    found.add(normpath(f"{root.rstrip('/')}/{stripped}"))
+
+        return sorted(found)
+
+    async def list_subghz_files(self, root="/ext/subghz"):
+        """Recursively list Sub-GHz .sub files on Flipper storage."""
+        try:
+            tree_files = await self._storage_tree_sub_files(root)
+            tree_files = [p for p in tree_files if _is_sendable_subghz_path(p) and p.lower().endswith(".sub")]
+            if tree_files:
+                return sorted(set(tree_files))
+        except Exception as e:
+            _LOGGER.debug("Cannot read storage tree for %s: %s", root, e)
+
+        discovered = []
+        queue = deque([root.rstrip("/")])
+        visited = set()
+
+        while queue:
+            current = queue.popleft()
+            if current in visited:
+                continue
+            visited.add(current)
+
+            try:
+                dirs, files = await self._storage_list(current)
+            except Exception as e:
+                _LOGGER.debug("Cannot list storage path %s: %s", current, e)
+                continue
+
+            for file_path in files:
+                if _is_sendable_subghz_path(file_path) and file_path.lower().endswith(".sub"):
+                    discovered.append(file_path)
+            for dir_path in dirs:
+                if _is_supported_subghz_path(dir_path) and dir_path not in visited:
+                    queue.append(dir_path)
+
+        return sorted(set(discovered))
     
     async def get_device_info(self):
         """
