@@ -82,6 +82,8 @@ class FlipperRCEntity(RemoteEntity):
         self._codes_storage = codes_storage
         self._codes = codes
         self._available = False
+        self._last_error = None
+        self._last_operation = None
         self._device = FlipperIR(self._port)
         self._device.set_on_connection_lost(self._on_connection_lost)
 
@@ -129,7 +131,12 @@ class FlipperRCEntity(RemoteEntity):
     
     @property
     def extra_state_attributes(self):
-        return self._device_info
+        attrs = dict(self._device_info)
+        if self._last_operation is not None:
+            attrs["last_operation"] = self._last_operation
+        if self._last_error is not None:
+            attrs["last_error"] = self._last_error
+        return attrs
 
     @property
     def supported_features(self):
@@ -157,14 +164,16 @@ class FlipperRCEntity(RemoteEntity):
         self._last_device_info_update = time.time()
         try:
             device_info = await self._device.get_device_info()
-            # compare with the previous device info
             if self._device_info != device_info:
                 _LOGGER.info("Device info changed: %s", device_info)
                 self._device_info = device_info
                 await self._device_info_storage.async_save(self._device_info)
             self._available = True
+        except (TimeoutError, ConnectionError, OSError) as e:
+            _LOGGER.warning("Failed to update Flipper device info: %s", e)
+            self._available = False
         except Exception as e:
-            _LOGGER.error("Failed to update Flipper device info, exception %s: %s", type(e), e, exc_info=True)
+            _LOGGER.error("Unexpected error updating device info: %s", e, exc_info=True)
             self._available = False
 
     async def async_turn_on(self, **kwargs):
@@ -181,7 +190,18 @@ class FlipperRCEntity(RemoteEntity):
 
     async def async_send_subghz_from_file(self, path, repeat=1, antenna=0):
         """Public API for replaying Sub-GHz capture files from storage."""
-        await self._device.send_subghz_from_file(path, repeat=repeat, antenna=antenna)
+        _LOGGER.info("async_send_subghz_from_file called: path=%s, repeat=%d, antenna=%d", path, repeat, antenna)
+        self._last_operation = f"Sending Sub-GHz file: {path}"
+        self._last_error = None
+        try:
+            await self._device.send_subghz_from_file(path, repeat=repeat, antenna=antenna)
+            _LOGGER.info("async_send_subghz_from_file succeeded for %s", path)
+        except Exception as e:
+            self._last_error = str(e)
+            _LOGGER.error("async_send_subghz_from_file failed for %s: %s", path, e)
+            raise HomeAssistantError(f"Failed to send Sub-GHz file '{path}' from Flipper Zero: {e}. "
+                                     "Check that the Flipper is connected, the file exists on the SD card, "
+                                     "and the Sub-GHz radio is not busy.")
 
     async def async_send_command(self, command, **kwargs):
         """Send a list of commands to a device."""
@@ -189,27 +209,33 @@ class FlipperRCEntity(RemoteEntity):
         repeat = kwargs.get(ATTR_NUM_REPEATS, 1)
         repeat_delay = kwargs.get(ATTR_DELAY_SECS, 0)
         hold = kwargs.get(ATTR_HOLD_SECS, 0)
-        
+
         if hold != 0:
             raise NotImplementedError("Hold time is not supported.")
-        
+
+        _LOGGER.info("async_send_command called: commands=%s, device=%s, repeat=%d", command, device, repeat)
+        self._last_error = None
+
         try:
             for n in range(repeat):
                 for cmd in command:
                     if device:
-                        if not device in self._codes:
+                        if device not in self._codes:
                             raise KeyError(f"Device '{device}' not found in the codes storage.")
-                        if not cmd in self._codes[device]:
+                        if cmd not in self._codes[device]:
                             raise KeyError(f"Command '{cmd}' not found in the codes storage for device '{device}'.")
                         code = self._codes[device][cmd]
-                        _LOGGER.debug("Sending command '%s' for device '%s', code: %s", cmd, device, code)
+                        self._last_operation = f"Sending IR command '{cmd}' for device '{device}'"
+                        _LOGGER.info("Sending IR command '%s' for device '%s', code: %s", cmd, device, code)
                     else:
                         code = cmd
-                        _LOGGER.debug("Sending command, code: '%s'", code)
+                        self._last_operation = f"Sending command: {code}"
+                        _LOGGER.info("Sending command, code: '%s'", code)
 
                     if isinstance(code, str) and code.startswith("subghz-file:"):
                         tx = parse_subghz_file_command(code)
-                        _LOGGER.debug("Sub-GHz file command parsed: %s", tx)
+                        self._last_operation = f"Sending Sub-GHz file: {tx['path']}"
+                        _LOGGER.info("Sub-GHz file command parsed: %s", tx)
                         await self._device.send_subghz_from_file(
                             path=tx["path"],
                             repeat=tx["repeat"],
@@ -217,7 +243,8 @@ class FlipperRCEntity(RemoteEntity):
                         )
                     elif isinstance(code, str) and code.startswith("subghz:"):
                         tx = parse_subghz_command(code)
-                        _LOGGER.debug("Sub-GHz command parsed: %s", tx)
+                        self._last_operation = f"Sending Sub-GHz: key=0x{tx['key']:06X}, freq={tx['frequency']}"
+                        _LOGGER.info("Sub-GHz command parsed: %s", tx)
                         await self._device.send_subghz(
                             key=tx["key"],
                             frequency=tx["frequency"],
@@ -227,16 +254,46 @@ class FlipperRCEntity(RemoteEntity):
                         )
                     else:
                         pulses = rc_auto_encode(code)
-                        _LOGGER.debug("Command pulses: %s", pulses)
+                        self._last_operation = f"Sending IR signal ({len(pulses)} pulses)"
+                        _LOGGER.info("Encoded IR command: %s pulses", len(pulses))
                         await self._device.send_ir(pulses)
                     if n < repeat - 1 and repeat_delay > 0:
                         await asyncio.sleep(repeat_delay)
             if not self._available:
                 self._available = True
                 self.schedule_update_ha_state()
+            _LOGGER.info("async_send_command completed successfully")
+        except HomeAssistantError:
+            # Re-raise HomeAssistantError as-is (already user-friendly)
+            raise
+        except TimeoutError as e:
+            self._last_error = str(e)
+            _LOGGER.error("Timeout sending command: %s", e)
+            raise HomeAssistantError(
+                f"Command timed out: {e}. "
+                "The Flipper Zero may be busy or unresponsive. "
+                "Try again in a moment, or check the device connection."
+            ) from e
+        except (ValueError, KeyError) as e:
+            self._last_error = str(e)
+            _LOGGER.error("Invalid command parameters: %s", e)
+            raise HomeAssistantError(f"Invalid command: {e}") from e
+        except ConnectionError as e:
+            self._last_error = str(e)
+            self._available = False
+            self.schedule_update_ha_state()
+            _LOGGER.error("Connection lost while sending command: %s", e)
+            raise HomeAssistantError(
+                f"Connection to Flipper Zero lost: {e}. "
+                "Please check the USB connection and try again."
+            ) from e
         except Exception as e:
-            _LOGGER.error("Failed to send command, exception %s: %s", type(e), e, exc_info=True)
-            raise HomeAssistantError(str(e))
+            self._last_error = str(e)
+            _LOGGER.error("Failed to send command, exception %s: %s", type(e).__name__, e, exc_info=True)
+            raise HomeAssistantError(
+                f"Failed to send command to Flipper Zero: {e}. "
+                "Check device connectivity and try again."
+            ) from e
 
     async def async_learn_command(self, **kwargs):
         """Learn a command to a device, or just show the received command code."""
@@ -332,12 +389,12 @@ class FlipperRCEntity(RemoteEntity):
         if not device:
             raise HomeAssistantError("You need to specify a device.")
 
-        if not device in self._codes:
+        if device not in self._codes:
             raise HomeAssistantError(f"Device '{device}' not found in the codes storage.")
 
         deleted = False
         for command in commands:
-            if device in self._codes and command in self._codes[device]:
+            if command in self._codes.get(device, {}):
                 del self._codes[device][command]
                 deleted = True
                 async_create(

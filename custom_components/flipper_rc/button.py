@@ -5,6 +5,7 @@ import logging
 import os
 
 from homeassistant.components.button import ButtonEntity
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.util import slugify
@@ -51,8 +52,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
         "/ext/subghz/Saved",
         "/ext/subghz_playlist",
         "/ext/apps_data/subghz",
+        "/ext",
     ]
-    fallback_root = "/ext"
 
     for root in search_roots:
         try:
@@ -63,16 +64,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
         if discovered:
             _LOGGER.info("Discovered %d Sub-GHz files in %s for %s", len(discovered), root, remote_entity.port)
             files.extend(discovered)
-
-    if not files:
-        try:
-            discovered = await remote_entity.async_list_subghz_files(fallback_root)
-        except Exception as e:
-            _LOGGER.debug("Cannot discover Sub-GHz files in %s on %s: %s", fallback_root, remote_entity.port, e)
-        else:
-            if discovered:
-                _LOGGER.info("Discovered %d Sub-GHz files in %s for %s", len(discovered), fallback_root, remote_entity.port)
-                files.extend(discovered)
 
     files = sorted(set(files))
 
@@ -116,9 +107,35 @@ class FlipperSubGhzFileButton(ButtonEntity):
 
     async def async_press(self):
         """Replay file when button is pressed."""
-        _LOGGER.info("Sending Sub-GHz saved file: %s", self._file_path)
+        _LOGGER.info("Button press triggered for Sub-GHz file: %s", self._file_path)
+
+        file_path = self._file_path
+
+        if not self._remote_entity.available:
+            _LOGGER.warning("Button press for %s rejected: remote entity is not available", file_path)
+            raise HomeAssistantError(
+                f"Cannot send Sub-GHz file '{file_path}': Flipper Zero is not connected. "
+                "Please check the USB connection and wait for the device to become available."
+            )
+
         try:
             await self._remote_entity.async_send_subghz_from_file(self._file_path, repeat=1, antenna=0)
+            _LOGGER.info("Button press for %s completed successfully", file_path)
+        except TimeoutError as e:
+            _LOGGER.error("Timeout sending Sub-GHz file %s: %s", file_path, e)
+            raise HomeAssistantError(
+                f"Timed out sending Sub-GHz file '{file_path}': {e}. "
+                "The Flipper Zero may be busy transmitting. Please try again in a moment."
+            ) from e
+        except ConnectionError as e:
+            _LOGGER.error("Connection lost while sending Sub-GHz file %s: %s", file_path, e)
+            raise HomeAssistantError(
+                f"Connection to Flipper Zero lost while sending '{file_path}': {e}. "
+                "Please check the USB connection."
+            ) from e
         except Exception as e:
-            _LOGGER.error("Failed to send Sub-GHz saved file %s: %s", self._file_path, e, exc_info=True)
-            raise
+            _LOGGER.error("Failed to send Sub-GHz saved file %s: %s", file_path, e, exc_info=True)
+            raise HomeAssistantError(
+                f"Failed to send Sub-GHz file '{file_path}': {e}. "
+                "Check device connectivity and try again."
+            ) from e
