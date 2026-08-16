@@ -3,6 +3,7 @@ import logging
 import time
 from posixpath import normpath
 import re
+import serial_asyncio_fast as serial_asyncio
 
 _LOGGER = logging.getLogger(__name__)
 
